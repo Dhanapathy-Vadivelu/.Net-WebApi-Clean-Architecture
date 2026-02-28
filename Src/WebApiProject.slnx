@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="DotNetLibrary.Core/DotNetLibrary.Core.csproj" />
+  <Project Path="DotNetLibrary.Data/DotNetLibrary.Data.csproj" />
+  <Project Path="DotNetLibrary.Domain/DotNetLibrary.Domain.csproj" />
+  <Project Path="DotNetLibrary.Shared/DotNetLibrary.Shared.csproj" />
+  <Project Path="WebApiProject/DotNetCoreWebApi/DotNetCoreWebApi.csproj" />
+</Solution>
