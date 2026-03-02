@@ -6,8 +6,10 @@ public class OAuthOptions
     public string Audience { get; set; } = string.Empty;
     public string SigningKey { get; set; } = string.Empty;
     public int AccessTokenExpirationMinutes { get; set; } = 60;
+    public int RefreshTokenExpirationMinutes { get; set; } = 43200; // 30 days
     public string DefaultScope { get; set; } = "api";
     public ExternalIdpOptions ExternalIdp { get; set; } = new();
+    public ExternalProvidersOptions ExternalProviders { get; set; } = new();
 }
 
 public class ExternalIdpOptions

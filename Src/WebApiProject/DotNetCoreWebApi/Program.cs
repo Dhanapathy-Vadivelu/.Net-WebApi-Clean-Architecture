@@ -1,6 +1,7 @@
-using DotNetCoreWebApi.Middleware;
 using DotNetCoreWebApi.Authorization.Handlers;
 using DotNetCoreWebApi.Authorization.Requirements;
+using DotNetCoreWebApi.Authorization.Services;
+using DotNetCoreWebApi.Middleware;
 using DotNetLibrary.Core.NotificationProcessor.Contracts;
 using DotNetLibrary.Core.NotificationProcessor.Models;
 using DotNetLibrary.Core.NotificationProcessor.Services;
@@ -10,13 +11,12 @@ using DotNetLibrary.Data.Repository;
 using DotNetLibrary.Domain.Contracts;
 using DotNetLibrary.Domain.Services;
 using DotNetLibrary.Shared.Security;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
+using OpenIddict.Validation.AspNetCore;
 using Scalar.AspNetCore;
-using System.Text;
+using static OpenIddict.Abstractions.OpenIddictConstants;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,25 +28,51 @@ builder.Services.Configure<OAuthOptions>(builder.Configuration.GetSection("OAuth
 builder.Services.Configure<NotificationOptions>(builder.Configuration.GetSection("Notification"));
 
 var oauthOptions = builder.Configuration.GetSection("OAuth").Get<OAuthOptions>() ?? new OAuthOptions();
-var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(oauthOptions.SigningKey));
 
-builder.Services
-    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+builder.Services.AddOpenIddict()
+    .AddCore(options =>
     {
-        options.RequireHttpsMetadata = true;
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = oauthOptions.Issuer,
-            ValidateAudience = true,
-            ValidAudience = oauthOptions.Audience,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = signingKey,
-            ClockSkew = TimeSpan.FromMinutes(2)
-        };
+        options.UseEntityFrameworkCore()
+            .UseDbContext<ApplicationDbContext>();
+    })
+    .AddServer(options =>
+    {
+        options.SetAuthorizationEndpointUris("/connect/authorize")
+            .SetEndSessionEndpointUris("/connect/logout")
+            .SetIntrospectionEndpointUris("/connect/introspect")
+            .SetTokenEndpointUris("/connect/token");
+
+        options.AllowAuthorizationCodeFlow()
+            .RequireProofKeyForCodeExchange();
+        options.AllowPasswordFlow();
+        options.AllowRefreshTokenFlow();
+        options.AllowClientCredentialsFlow();
+        options.AllowCustomFlow("external");
+        options.AcceptAnonymousClients();
+
+        options.SetAccessTokenLifetime(TimeSpan.FromMinutes(oauthOptions.AccessTokenExpirationMinutes));
+        options.SetRefreshTokenLifetime(TimeSpan.FromMinutes(oauthOptions.RefreshTokenExpirationMinutes));
+        options.AddDevelopmentSigningCertificate();
+        options.AddEphemeralEncryptionKey();
+
+        options.RegisterScopes(Scopes.OpenId, Scopes.OfflineAccess, Scopes.Email, Scopes.Profile, Scopes.Roles, oauthOptions.DefaultScope);
+
+        options.UseAspNetCore()
+            .EnableAuthorizationEndpointPassthrough()
+            .EnableEndSessionEndpointPassthrough()
+            .EnableTokenEndpointPassthrough();
+    })
+    .AddValidation(options =>
+    {
+        options.UseLocalServer();
+        options.UseAspNetCore();
     });
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultScheme = OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
+});
 
 builder.Services.AddAuthorization(options =>
 {
@@ -79,7 +105,8 @@ builder.Services.AddScoped<INotificationProcessor, NotificationProcessor>();
 builder.Services.AddScoped<IUserManagementService, UserManagementService>();
 builder.Services.AddScoped<ILookupService, LookupService>();
 builder.Services.AddScoped<IRolePermissionService, RolePermissionService>();
-builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<ExternalIdTokenValidator>();
+builder.Services.AddScoped<IUserClaimsService, UserClaimsService>();
 builder.Services.AddSingleton<IAuthorizationHandler, AdminOrSelfHandler>();
 builder.Services.AddScoped<Microsoft.AspNetCore.Identity.IPasswordHasher<DotNetLibrary.Data.Entities.User>, Microsoft.AspNetCore.Identity.PasswordHasher<DotNetLibrary.Data.Entities.User>>();
 
@@ -104,6 +131,7 @@ app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Document the OpenIddict token endpoint for OpenAPI/Scalar without changing behavior
 app.MapControllers();
 
 app.Run();

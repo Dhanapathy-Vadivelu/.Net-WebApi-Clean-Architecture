@@ -1,8 +1,7 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Mail;
-using System.Text;
-using System.Text.Json;
+using Azure;
+using Azure.Communication.Email;
 using DotNetLibrary.Core.NotificationProcessor.Contracts;
 using DotNetLibrary.Core.NotificationProcessor.Models;
 using Microsoft.Extensions.Logging;
@@ -13,13 +12,11 @@ namespace DotNetLibrary.Core.NotificationProcessor.Services;
 public class EmailNotificationChannel : INotificationChannel
 {
     private readonly NotificationOptions _notificationOptions;
-    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<EmailNotificationChannel> _logger;
 
-    public EmailNotificationChannel(IOptions<NotificationOptions> notificationOptions, IHttpClientFactory httpClientFactory, ILogger<EmailNotificationChannel> logger)
+    public EmailNotificationChannel(IOptions<NotificationOptions> notificationOptions, ILogger<EmailNotificationChannel> logger)
     {
         _notificationOptions = notificationOptions.Value;
-        _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
 
@@ -63,36 +60,22 @@ public class EmailNotificationChannel : INotificationChannel
     private async Task SendUsingAzureEmailServiceAsync(NotificationMessage message, CancellationToken cancellationToken)
     {
         var options = _notificationOptions.Email.AzureEmailService;
-        var endpoint = options.Endpoint.TrimEnd('/');
+        var emailClient = new EmailClient(new Uri(options.Endpoint), new AzureKeyCredential(options.AccessKey));
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/emails:send?api-version=2023-03-31");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.AccessKey);
-
-        var payload = new
-        {
-            senderAddress = _notificationOptions.Email.SenderEmail,
-            content = new
+        var emailMessage = new EmailMessage(
+            senderAddress: _notificationOptions.Email.SenderEmail,
+            content: new EmailContent(message.Subject ?? string.Empty)
             {
-                subject = message.Subject ?? string.Empty,
-                html = message.Content
+                Html = message.Content
             },
-            recipients = new
-            {
-                to = new[]
-                {
-                    new { address = message.To }
-                }
-            }
-        };
+            recipients: new EmailRecipients([
+                new EmailAddress(message.To)
+            ]));
 
-        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-
-        var client = _httpClientFactory.CreateClient(nameof(EmailNotificationChannel));
-        using var response = await client.SendAsync(request, cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        var response = await emailClient.SendAsync(WaitUntil.Completed, emailMessage, cancellationToken);
+        if (response.Value.Status != EmailSendStatus.Succeeded)
         {
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Azure Email Service failed with status {StatusCode}: {Content}", response.StatusCode, content);
+            _logger.LogError("Azure Email Service failed with operation status {Status}", response.Value.Status);
             throw new InvalidOperationException("Unable to send email via Azure Email Service.");
         }
 

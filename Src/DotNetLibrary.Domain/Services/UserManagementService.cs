@@ -39,30 +39,36 @@ public class UserManagementService : IUserManagementService
 
     public async Task<ApiResponse<UserDto>> CreateAsync(CreateUserRequest request, CancellationToken cancellationToken = default)
     {
-        var existing = await _userRepository.GetByEmailAsync(request.Email, cancellationToken);
-        if (existing is not null)
+        var existingUser = await _userRepository.GetByEmailAsync(request.Email, cancellationToken);
+        if (existingUser is not null && existingUser.IsActive)
         {
             return ApiResponse<UserDto>.Fail($"User with email {request.Email} already exists.", statusCode: StatusCodes.Status409Conflict);
         }
 
-        var now = DateTime.UtcNow;
-        var user = new User
+        if (existingUser is null)
         {
-            FirstName = request.FirstName,
-            LastName = request.LastName,
-            Email = request.Email,
-            IsActive = false,
-            CreatedAt = now,
-        };
+            existingUser = new User
+            {
+                FirstName = request.FirstName,
+                LastName = request.LastName,
+                Email = request.Email,
+                IsActive = false,
+                CreatedAt = DateTime.UtcNow,
+            };
 
-        user.PasswordHash = _passwordHasher.HashPassword(user, request.Password);
+            existingUser.PasswordHash = _passwordHasher.HashPassword(existingUser, request.Password);
 
-        await _userRepository.AddAsync(user, cancellationToken);
-        await SendRegistrationOtpAsync(user, cancellationToken);
+            await _userRepository.AddAsync(existingUser, cancellationToken);
+            await SendRegistrationOtpAsync(existingUser, cancellationToken);
 
-        _logger.LogInformation("Created user {UserId} with email {Email}", user.Id, user.Email);
-
-        return ApiResponse<UserDto>.Ok(ToDto(user), "User created. OTP has been sent to email for activation.", StatusCodes.Status201Created);
+            _logger.LogInformation("Created user {UserId} with email {Email}", existingUser.Id, existingUser.Email);
+        }
+        else
+        {
+            await SendRegistrationOtpAsync(existingUser, cancellationToken);
+        }
+        
+        return ApiResponse<UserDto>.Ok(ToDto(existingUser), "OTP has been sent to email for activation.", StatusCodes.Status201Created);
     }
 
     public async Task<ApiResponse<bool>> DeleteAsync(int id, CancellationToken cancellationToken = default)

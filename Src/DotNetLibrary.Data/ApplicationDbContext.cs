@@ -1,5 +1,6 @@
 using DotNetLibrary.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using OpenIddict.EntityFrameworkCore.Models;
 
 namespace DotNetLibrary.Data;
 
@@ -21,6 +22,8 @@ public class ApplicationDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.UseOpenIddict();
 
         modelBuilder.Entity<User>(entity =>
         {

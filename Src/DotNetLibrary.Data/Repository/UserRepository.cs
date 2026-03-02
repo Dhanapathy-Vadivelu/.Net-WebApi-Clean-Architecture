@@ -21,6 +21,19 @@ public class UserRepository : BaseRepository<User, int>, IUserRepository
         return await DbSet.AsNoTracking().FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
     }
 
+    public async Task<User?> GetActiveUserWithClaimsByEmailAsync(string email, CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching active user with related claims by email {Email}", email);
+
+        return await DbSet.AsNoTracking()
+            .Where(u => u.Email == email && !u.IsDeleted && u.IsActive)
+            .Include(u => u.UserRoleMaps.Where(ur => !ur.IsDeleted))
+                .ThenInclude(ur => ur.Role)
+                    .ThenInclude(r => r.RolePermissionMaps.Where(rp => !rp.IsDeleted))
+                        .ThenInclude(rp => rp.Permission)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<User?> GetByEmailForUpdateAsync(string email, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Fetching tracked user by email {Email}", email);

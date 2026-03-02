@@ -18,4 +18,7 @@ public class OAuthTokenRequest
 
     [FromForm(Name = "external_token")]
     public string? ExternalToken { get; set; }
+
+    [FromForm(Name = "refresh_token")]
+    public string? RefreshToken { get; set; }
 }
